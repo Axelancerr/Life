@@ -16,6 +16,7 @@ import time
 from typing import Optional, Union
 
 import aiohttp
+import aioscheduler
 import aredis
 import asyncpg
 import discord
@@ -27,8 +28,7 @@ import spotify
 from discord.ext import commands
 
 import config
-from managers import guild_manager, reminder_manager, tag_manager, todo_manager, user_manager
-from utilities import context, help  # skipcq: PYL-W0622
+from utilities import context, help, managers  # skipcq: PYL-W0622
 
 __log__ = logging.getLogger(__name__)
 
@@ -66,12 +66,10 @@ class Life(commands.AutoShardedBot):
         self.slate: Optional[slate.Client] = slate.Client(bot=self, session=self.session)
         self.spotify: Optional[spotify.Client] = spotify.Client(client_id=config.SPOTIFY_CLIENT_ID, client_secret=config.SPOTIFY_CLIENT_SECRET)
         self.spotify_http: Optional[spotify.HTTPClient] = spotify.HTTPClient(client_id=config.SPOTIFY_CLIENT_ID, client_secret=config.SPOTIFY_CLIENT_SECRET)
+        self.scheduler: aioscheduler.Manager = aioscheduler.Manager(2)
 
-        self.user_manager: user_manager.UserManager = user_manager.UserManager(bot=self)
-        self.guild_manager: guild_manager.GuildManager = guild_manager.GuildManager(bot=self)
-        self.reminder_manager: reminder_manager.ReminderManager = reminder_manager.ReminderManager(bot=self)
-        self.tag_manager: tag_manager.TagManager = tag_manager.TagManager(bot=self)
-        self.todo_manager: todo_manager.TodoManager = todo_manager.TodoManager(bot=self)
+        self.user_manager: managers.UserManager = managers.UserManager(bot=self)
+        self.guild_manager: managers.GuildManager = managers.GuildManager(bot=self)
 
     async def get_context(self, message: discord.Message, *, cls=context.Context) -> context.Context:
         return await super().get_context(message, cls=cls)
@@ -162,6 +160,7 @@ class Life(commands.AutoShardedBot):
         self.first_ready = False
 
         self.add_check(self.command_check)
+        self.scheduler.start()
 
         await self.user_manager.load()
         await self.guild_manager.load()

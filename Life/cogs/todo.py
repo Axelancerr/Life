@@ -36,7 +36,7 @@ class Todo(commands.Cog):
             raise exceptions.GeneralError('You do not have any todos.')
 
         entries = [f'[`{todo.id}`]({todo.jump_url}) {todo.content}' for todo in ctx.user_config.todos.values()]
-        await ctx.paginate_embed(entries=entries, per_page=10, title=f'`{ctx.author.name}\'s` todo list:')
+        await ctx.paginate_embed(entries=entries, per_page=10, title=f'`{ctx.author.name}`\'s todo list:')
 
     @todo.command(name='list')
     async def todo_list(self, ctx: context.Context) -> None:
@@ -60,7 +60,7 @@ class Todo(commands.Cog):
         if len(content) > 180:
             raise exceptions.ArgumentError('Your todo can not be more than 180 characters long.')
 
-        todo = await self.bot.todo_manager.create_todo(ctx.author.id, content=content, jump_url=ctx.message.jump_url)
+        todo = await ctx.user_config.create_todo(content=content, jump_url=ctx.message.jump_url)
         await ctx.send(f'Todo with id `{todo.id}` was created.')
 
     @todo.command(name='delete', aliases=['remove'])
@@ -68,13 +68,13 @@ class Todo(commands.Cog):
         """
         Delete todos with the given ids.
 
-        `todo_ids`: The ids of the todos to delete. You can provide a list of ids separated by spaces to delete multiple.
+        `todo_ids`: A list of todo id's to delete, separated by spaces.
         """
 
         if not ctx.user_config.todos:
             raise exceptions.GeneralError('You do not have any todos.')
 
-        todo_ids_to_delete = []
+        todos_to_delete = []
         for todo_id in todo_ids.split(' '):
 
             try:
@@ -82,18 +82,19 @@ class Todo(commands.Cog):
             except ValueError:
                 raise exceptions.ArgumentError(f'`{todo_id}` is not a valid todo id.')
 
-            if todo_id not in ctx.user_config.todos.keys():
+            if not (todo := ctx.user_config.get_todo(todo_id)):
                 raise exceptions.ArgumentError(f'You do not have a todo with the id `{todo_id}`.')
-            if todo_id in todo_ids_to_delete:
-                raise exceptions.ArgumentError(f'You provided the todo id `{todo_id}` more than once.')
+            if todo in todos_to_delete:
+                raise exceptions.ArgumentError(f'You provided the id `{todo_id}` more than once.')
 
-            todo_ids_to_delete.append(todo_id)
+            todos_to_delete.append(todo)
 
-        embed = discord.Embed(colour=ctx.colour, title=f'Deleted `{len(todo_ids_to_delete)}` todo{"s" if len(todo_ids_to_delete) > 1 else ""}:')
-        embed.add_field(name='Contents: ', value='\n'.join(f'[`{ctx.user_config.todos[todo_id].id}`]({ctx.user_config.todos[todo_id].jump_url}) '
-                                                           f'{ctx.user_config.todos[todo_id].content}' for todo_id in todo_ids_to_delete))
+        embed = discord.Embed(colour=ctx.colour, title=f'Deleted `{len(todos_to_delete)}` todo{"s" if len(todos_to_delete) > 1 else ""}:')
+        embed.add_field(name='Contents: ', value='\n'.join(f'[`{todo.id}`]({todo.jump_url}) {todo.content}' for todo in todos_to_delete))
 
-        await self.bot.todo_manager.delete_todos(ctx.author.id, todo_ids=todo_ids_to_delete)
+        for todo in todos_to_delete:
+            await todo.delete()
+
         await ctx.send(embed=embed)
 
     @todo.command(name='clear')
@@ -105,9 +106,11 @@ class Todo(commands.Cog):
         if not ctx.user_config.todos:
             raise exceptions.GeneralError('You do not have any todos.')
 
-        todo_ids = list(ctx.user_config.todos.keys())
-        await self.bot.todo_manager.delete_todos(ctx.author.id, todo_ids=todo_ids)
-        await ctx.send(f'Cleared your todo list of `{len(todo_ids)}` todo{"s" if len(todo_ids) > 1 else ""}.')
+        count = len(ctx.user_config.todos)
+        for todo in ctx.user_config.todos.copy().values():
+            await todo.delete()
+
+        await ctx.send(f'Cleared your todo list of `{count}` todo{"s" if count > 1 else ""}.')
 
     @todo.command(name='edit', aliases=['update'])
     async def todo_edit(self, ctx: context.Context, todo_id: str, *, content: commands.clean_content) -> None:
@@ -130,12 +133,11 @@ class Todo(commands.Cog):
         except ValueError:
             raise exceptions.ArgumentError(f'`{todo_id}` is not a valid todo id.')
 
-        todo = ctx.user_config.todos.get(todo_id)
-        if not todo:
+        if not (todo := ctx.user_config.todos.get(todo_id)):
             raise exceptions.ArgumentError(f'You do not have a todo with the id `{todo_id}`.')
 
-        await self.bot.todo_manager.edit_todo_content(ctx.author.id, todo_id=todo.id, content=content, jump_url=ctx.message.jump_url)
-        await ctx.send(f'Edited todo with id `{todo_id}`.')
+        await todo.change_content(content=content, jump_url=ctx.message.jump_url)
+        await ctx.send(f'Edited content of todo with id `{todo_id}`.')
 
 
 def setup(bot: Life) -> None:
